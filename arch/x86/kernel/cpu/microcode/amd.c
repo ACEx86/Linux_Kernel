@@ -30,6 +30,7 @@
 #include <linux/kernel.h>
 #include <linux/unaligned.h>
 #include <linux/pci.h>
+#include <linux/types.h>
 
 
 #include <crypto/sha2.h>
@@ -61,6 +62,8 @@ static LIST_HEAD(microcode_cache);
 #define SECTION_HDR_SIZE		8
 #define CONTAINER_HDR_SZ		12
 #define AMD_PTR_IS_ALIGNED(p, a) (((uintptr_t)(const void *)(p)) % (a) == 0)
+#define AMD_STRUCT_IS_ALIGNED_TO_TYPE(ptr, type) \
+    ((((uintptr_t)(const void *)(ptr)) & (__alignof__(type) - 1)) == 0)
 
 struct equiv_cpu_entry {
 	u32	installed_cpu;
@@ -511,12 +514,12 @@ static bool mc_patch_matches(struct microcode_amd *mc, u16 eq_id)
         u32 patch_id;
         u16 proc_rev_id;
 
-        if (AMD_PTR_IS_ALIGNED(&mc->hdr.patch_id, sizeof(u32)))
+        if (AMD_STRUCT_IS_ALIGNED_TO_TYPE(&mc->hdr.patch_id, u32))
                 patch_id = mc->hdr.patch_id;
         else
                 patch_id = get_unaligned_le32(&mc->hdr.patch_id);
 
-        if (AMD_PTR_IS_ALIGNED(&mc->hdr.processor_rev_id, sizeof(u16)))
+        if (AMD_STRUCT_IS_ALIGNED_TO_TYPE(&mc->hdr.processor_rev_id, u16))
                 proc_rev_id = mc->hdr.processor_rev_id;
         else
                 proc_rev_id = get_unaligned_le16(&mc->hdr.processor_rev_id);
@@ -770,13 +773,20 @@ void __init load_ucode_amd_bsp(struct early_load_data *ed, unsigned int cpuid_1_
 	if (!mc)
 		return;
 
+        u32 patch_id;
+
+        if (AMD_STRUCT_IS_ALIGNED_TO_TYPE(&mc->hdr.patch_id, u32))
+                patch_id = mc->hdr.patch_id;
+        else
+                patch_id = get_unaligned_le32(&mc->hdr.patch_id);
+
 	/*
 	 * Allow application of the same revision to pick up SMT-specific
 	 * changes even if the revision of the other SMT thread is already
 	 * up-to-date.
 	 */
-	if (ed->old_rev > mc->hdr.patch_id)
-		return;
+        if (ed->old_rev > patch_id)
+                return;
 
 	if (__apply_microcode_amd(mc, &rev, desc.psize))
 		ed->new_rev = rev;
