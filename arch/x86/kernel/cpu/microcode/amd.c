@@ -62,8 +62,6 @@ static LIST_HEAD(microcode_cache);
 #define SECTION_HDR_SIZE		8
 #define CONTAINER_HDR_SZ		12
 #define AMD_PTR_IS_ALIGNED(p, a) (((uintptr_t)(const void *)(p)) % (a) == 0)
-#define AMD_STRUCT_IS_ALIGNED_TO_TYPE(ptr, type) \
-    ((((uintptr_t)(const void *)(ptr)) & (__alignof__(type) - 1)) == 0)
 
 struct equiv_cpu_entry {
 	u32	installed_cpu;
@@ -317,11 +315,7 @@ static bool verify_container(const u8 *buf, size_t buf_size)
 		return false;
 	}
         
-        if (AMD_PTR_IS_ALIGNED(buf, 4)) {
-	        cont_magic = *(const u32 *)buf;
-        } else {
-	        cont_magic = get_unaligned((const u32 *)buf);
-	}
+        cont_magic = get_unaligned((const u32 *)buf);
 	
 	if (cont_magic != UCODE_MAGIC) {
 		pr_debug("Invalid magic value (0x%08x).\n", cont_magic);
@@ -509,21 +503,33 @@ static int verify_patch(const u8 *buf, size_t buf_size, u32 *patch_size)
 	return 0;
 }
 
-static bool mc_patch_matches(struct microcode_amd *mc, u16 eq_id)
+static bool mc_patch_matches(struct microcode_amd *mc, size_t patch_size, u16 eq_id)
 {
-        u32 patch_id;
-        u16 proc_rev_id;
+        size_t patch_id_offset = offsetof(struct microcode_amd, hdr) +
+                                 offsetof(struct microcode_header_amd, patch_id);
+        size_t proc_rev_offset = offsetof(struct microcode_amd, hdr) +
+                                 offsetof(struct microcode_header_amd, processor_rev_id);
 
-        if (AMD_STRUCT_IS_ALIGNED_TO_TYPE(&mc->hdr.patch_id, u32))
-                patch_id = mc->hdr.patch_id;
-        else
-                patch_id = get_unaligned_le32(&mc->hdr.patch_id);
+        if (patch_id_offset > SIZE_MAX - sizeof(u32)) {
+                pr_err("microcode: patch_id offset overflow\n");
+        }
 
-        if (AMD_STRUCT_IS_ALIGNED_TO_TYPE(&mc->hdr.processor_rev_id, u16))
-                proc_rev_id = mc->hdr.processor_rev_id;
-        else
-                proc_rev_id = get_unaligned_le16(&mc->hdr.processor_rev_id);
-            
+        if (patch_id_offset + sizeof(u32) > patch_size) {
+                pr_err("microcode: patch_id offset outside patch blob\n");
+        }
+
+        if (proc_rev_offset > SIZE_MAX - sizeof(u16)) {
+                pr_err("microcode: proc_rev_offset offset overflow\n");
+        }
+
+        if (proc_rev_offset + sizeof(u16) > patch_size) {
+                pr_err("microcode: processor_rev_id offset outside patch blob\n");
+        }
+
+        u32 patch_id = get_unaligned_le32((u8 *)mc + patch_id_offset);
+        u16 proc_rev_id = get_unaligned_le16((u8 *)mc + proc_rev_offset);
+        
+        
 	/* Zen and newer do not need an equivalence table. */
         if (x86_family(bsp_cpuid_1_eax) >= 0x17) {
                 return ucode_rev_to_cpuid(patch_id).full == bsp_cpuid_1_eax;
@@ -558,11 +564,7 @@ static size_t parse_container(u8 *ucode, size_t size, struct cont_desc *desc)
 	buf = ucode;
 	
         /* Safe read of hdr[2]: */
-        if (AMD_PTR_IS_ALIGNED(buf + 8, 4)) {
-		hdr = *(u32 *)(buf + 8);
-	} else {
-		hdr = get_unaligned((u32 *)(buf + 8));
-        }
+        hdr = get_unaligned((u32 *)(buf + 8));
         
         /* Sanity check on equivalence table size. */
 	if (hdr % sizeof(struct equiv_cpu_entry)) {
@@ -613,7 +615,7 @@ static size_t parse_container(u8 *ucode, size_t size, struct cont_desc *desc)
 		}
 
 		mc = (struct microcode_amd *)(buf + SECTION_HDR_SIZE);
-		if (mc_patch_matches(mc, eq_id)) {
+		if (mc_patch_matches(mc, patch_size, eq_id)) {
 			desc->psize = patch_size;
 			desc->mc = mc;
 		}
@@ -772,13 +774,16 @@ void __init load_ucode_amd_bsp(struct early_load_data *ed, unsigned int cpuid_1_
 	mc = desc.mc;
 	if (!mc)
 		return;
+        
+        size_t patch_id_offset = offsetof(struct microcode_amd, hdr) + offsetof(struct microcode_header_amd, patch_id);
+
+        if (patch_id_offset > SIZE_MAX - sizeof(u32)) {
+            pr_err("microcode: patch_id offset overflow\n");
+            return;
+        }
 
         u32 patch_id;
-
-        if (AMD_STRUCT_IS_ALIGNED_TO_TYPE(&mc->hdr.patch_id, u32))
-                patch_id = mc->hdr.patch_id;
-        else
-                patch_id = get_unaligned_le32(&mc->hdr.patch_id);
+        patch_id = get_unaligned_le32((u8 *)mc + patch_id_offset);
 
 	/*
 	 * Allow application of the same revision to pick up SMT-specific
