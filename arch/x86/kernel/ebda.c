@@ -66,13 +66,25 @@ void __init reserve_bios_regions(void)
 	if (!x86_platform.legacy.reserve_bios_regions)
 		return;
 
+	unsigned char low, high;
+
+	if (get_user(low, (unsigned char *)__va(BIOS_RAM_SIZE_KB_PTR)))
+		return; // handle error
+
+	if (get_user(high, (unsigned char *)__va(BIOS_RAM_SIZE_KB_PTR + 1)))
+		return; // handle error
+
 	/*
 	 * BIOS RAM size is encoded in kilobytes, convert it
 	 * to bytes to get a first guess at where the BIOS
 	 * firmware area starts:
 	 */
-	bios_start = *(unsigned short *)__va(BIOS_RAM_SIZE_KB_PTR);
-	bios_start <<= 10;
+	unsigned short bios_size_high_short = (high << 8);
+	unsigned int bios_size_high_unshorted = bios_size_high_short;
+	unsigned int bios_addr_s = bios_size_high_unshorted | low;
+	bios_addr_s <<= 10;
+	int32_t bios_ten = bios_addr_s;
+	bios_start = bios_ten;
 
 	/*
 	 * If bios_start is less than 128K, assume it is bogus
