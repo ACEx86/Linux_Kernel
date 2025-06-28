@@ -61,7 +61,6 @@ static LIST_HEAD(microcode_cache);
 
 #define SECTION_HDR_SIZE		8
 #define CONTAINER_HDR_SZ		12
-#define AMD_PTR_IS_ALIGNED(p, a) (((uintptr_t)(const void *)(p)) % (a) == 0)
 
 struct equiv_cpu_entry {
 	u32	installed_cpu;
@@ -379,15 +378,8 @@ static bool __verify_patch_section(const u8 *buf, size_t buf_size, u32 *sh_psize
 
 	hdr = (const u32 *)buf;
 
-	if (AMD_PTR_IS_ALIGNED(hdr, 4)) {
-	    // aligned access
-	    p_type = hdr[0];
-	    p_size = hdr[1];
-	} else {
-	    // unaligned access
-	    p_type = get_unaligned(hdr);
-	    p_size = get_unaligned(hdr + 1);
-	}
+	p_type = get_unaligned(hdr);
+	p_size = get_unaligned(hdr + 1);
     	
 	if (p_type != UCODE_UCODE_TYPE) {
 		pr_debug("Invalid type field (0x%x) in container file section header.\n",
@@ -505,37 +497,37 @@ static int verify_patch(const u8 *buf, size_t buf_size, u32 *patch_size)
 
 static bool mc_patch_matches(struct microcode_amd *mc, size_t patch_size, u16 eq_id)
 {
-        size_t patch_id_offset = offsetof(struct microcode_amd, hdr) +
-                                 offsetof(struct microcode_header_amd, patch_id);
-        size_t proc_rev_offset = offsetof(struct microcode_amd, hdr) +
-                                 offsetof(struct microcode_header_amd, processor_rev_id);
+    size_t patch_id_offset = offsetof(struct microcode_amd, hdr) +
+                             offsetof(struct microcode_header_amd, patch_id);
+    size_t proc_rev_offset = offsetof(struct microcode_amd, hdr) +
+                             offsetof(struct microcode_header_amd, processor_rev_id);
 
-        if (patch_id_offset > SIZE_MAX - sizeof(u32)) {
-                pr_err("microcode: patch_id offset overflow\n");
-        }
+    if (patch_id_offset > SIZE_MAX - sizeof(u32)) {
+            pr_err("microcode: patch_id offset overflow\n");
+    }
+    // Check if patch_id fits inside patch_size
+    if (patch_id_offset + sizeof(u32) > patch_size) {
+            pr_err("microcode: patch_id offset outside patch blob\n");
+    }
 
-        if (patch_id_offset + sizeof(u32) > patch_size) {
-                pr_err("microcode: patch_id offset outside patch blob\n");
-        }
+    if (proc_rev_offset > SIZE_MAX - sizeof(u16)) {
+            pr_err("microcode: proc_rev_offset offset overflow\n");
+    }
+    // Check if processor_rev_id fits inside patch_size
+    if (proc_rev_offset + sizeof(u16) > patch_size) {
+            pr_err("microcode: processor_rev_id offset outside patch blob\n");
+    }
 
-        if (proc_rev_offset > SIZE_MAX - sizeof(u16)) {
-                pr_err("microcode: proc_rev_offset offset overflow\n");
-        }
+    u32 patch_id = get_unaligned_le32((u8 *)mc + patch_id_offset);
+    u16 proc_rev_id = get_unaligned_le16((u8 *)mc + proc_rev_offset);
 
-        if (proc_rev_offset + sizeof(u16) > patch_size) {
-                pr_err("microcode: processor_rev_id offset outside patch blob\n");
-        }
 
-        u32 patch_id = get_unaligned_le32((u8 *)mc + patch_id_offset);
-        u16 proc_rev_id = get_unaligned_le16((u8 *)mc + proc_rev_offset);
-        
-        
 	/* Zen and newer do not need an equivalence table. */
-        if (x86_family(bsp_cpuid_1_eax) >= 0x17) {
-                return ucode_rev_to_cpuid(patch_id).full == bsp_cpuid_1_eax;
-        } else {
-                return eq_id == proc_rev_id;
-        }
+    if (x86_family(bsp_cpuid_1_eax) >= 0x17) {
+            return ucode_rev_to_cpuid(patch_id).full == bsp_cpuid_1_eax;
+    } else {
+            return eq_id == proc_rev_id;
+    }
 }
 
 /*
@@ -553,20 +545,18 @@ static size_t parse_container(u8 *ucode, size_t size, struct cont_desc *desc)
 	u16 eq_id;
 	u8 *buf;
 
-	if (!verify_equivalence_table(ucode, size))
+	if (!verify_equivalence_table(ucode, size)) {
 		return 0;
-        
-        if (size < (8 + sizeof(u32))) {
+ 	}
+
+    if (size < (8 + sizeof(u32))) {
 		pr_debug("Container header truncated.\n");
 		return 0;
 	}
         
 	buf = ucode;
-	
-        /* Safe read of hdr[2]: */
-        hdr = get_unaligned((u32 *)(buf + 8));
-        
-        /* Sanity check on equivalence table size. */
+    hdr = get_unaligned((u32 *)(buf + 8));
+
 	if (hdr % sizeof(struct equiv_cpu_entry)) {
 		pr_debug("Equivalence table size not multiple of entry size.\n");
 		return 0;
@@ -1277,3 +1267,5 @@ void __exit exit_amd_microcode(void)
 {
 	cleanup();
 }
+
+
