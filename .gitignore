@@ -1,0 +1,13 @@
+#
+.o
+.exe
+
+# Node
+node_modules/
+
+# Python
+__pycache__/
+
+# JetBrains IDE
+.idea/
+*.iml
