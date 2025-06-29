@@ -538,7 +538,7 @@ native_load_sp0(unsigned long sp0)
 	u32 *sp0_ptr = (u32 *)&tss->sp0;
 
 	sp0_ptr[0] = (u32)sp0;
-	sp0_ptr[1] = (u32)(sp0 >> 32);
+	sp0_ptr[1] = (u32)(((u64)sp0) >> 32);
 }
 
 static __always_inline void native_swapgs(void)
