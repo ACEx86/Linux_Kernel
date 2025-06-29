@@ -18,6 +18,7 @@
  *
  *  Author: Jacob Shin <jacob.shin@amd.com>
  *  Fixes: Borislav Petkov <bp@suse.de>
+ *  Fixes: ACEx86
  */
 #define pr_fmt(fmt) "microcode: " fmt
 
@@ -996,13 +997,11 @@ void load_ucode_amd_ap(unsigned int cpuid_1_eax)
 static size_t install_equiv_cpu_table(const u8 *buf, size_t buf_size)
 {
 	u32 equiv_tbl_len;
-	const u32 *hdr;
 
 	if (!verify_equivalence_table(buf, buf_size))
 		return 0;
 
-	hdr = (const u32 *)buf;
-	equiv_tbl_len = hdr[2];
+	equiv_tbl_len = get_unaligned((const u32 *)(buf + 2 * sizeof(u32)));
 
 	/* Zen and newer do not need an equivalence table. */
 	if (x86_family(bsp_cpuid_1_eax) >= 0x17)
@@ -1098,8 +1097,8 @@ static enum ucode_state __load_microcode_amd(u8 family, const u8 *data, size_t s
 
 	fw   += offset;
 	size -= offset;
-
-	if (*(u32 *)fw != UCODE_UCODE_TYPE) {
+	u32 type_field = fw[0] | (fw[1] << 8) | (fw[2] << 16) | (fw[3] << 24);
+	if (type_field != UCODE_UCODE_TYPE) {
 		pr_err("invalid type field in container file section header\n");
 		free_equiv_cpu_table();
 		return UCODE_ERROR;
@@ -1128,8 +1127,9 @@ static enum ucode_state _load_microcode_amd(u8 family, const u8 *data, size_t si
 	free_equiv_cpu_table();
 
 	ret = __load_microcode_amd(family, data, size);
-	if (ret != UCODE_OK)
+	if (ret != UCODE_OK) {
 		cleanup();
+	}
 
 	return ret;
 }
@@ -1267,5 +1267,3 @@ void __exit exit_amd_microcode(void)
 {
 	cleanup();
 }
-
-
