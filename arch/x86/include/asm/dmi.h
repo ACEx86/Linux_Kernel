@@ -10,7 +10,7 @@
 
 static __always_inline __init void *dmi_alloc(unsigned len)
 {
-	return extend_brk(len, sizeof(int));
+	return extend_brk(len, max_t(size_t, sizeof(int), __alignof__(struct dmi_device)));
 }
 
 /* Use early IO mappings for DMI because it's initialized early */
