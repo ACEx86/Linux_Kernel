@@ -534,7 +534,11 @@ static inline void arch_thread_struct_whitelist(unsigned long *offset,
 static inline void
 native_load_sp0(unsigned long sp0)
 {
-	this_cpu_write(cpu_tss_rw.x86_tss.sp0, sp0);
+	struct x86_hw_tss *tss = &this_cpu_ptr(&cpu_tss_rw)->x86_tss;
+	u32 *sp0_ptr = (u32 *)&tss->sp0;
+
+	sp0_ptr[0] = (u32)sp0;
+	sp0_ptr[1] = (u32)(sp0 >> 32);
 }
 
 static __always_inline void native_swapgs(void)
@@ -771,3 +775,4 @@ static inline void weak_wrmsr_fence(void)
 }
 
 #endif /* _ASM_X86_PROCESSOR_H */
+
